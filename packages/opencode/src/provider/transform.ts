@@ -360,6 +360,9 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
     alibaba: {
       cacheControl: { type: "ephemeral" },
     },
+    deepseek: {
+      cacheControl: { type: "ephemeral" },
+    },
   }
 
   for (const msg of unique([...system, ...final])) {
@@ -432,8 +435,10 @@ export function message(msgs: ModelMessage[], model: Provider.Model, options: Re
   if (
     (model.providerID === "anthropic" ||
       model.providerID === "google-vertex-anthropic" ||
+      model.providerID === "deepseek" ||
       model.api.id.includes("anthropic") ||
       model.api.id.includes("claude") ||
+      model.api.id.toLowerCase().includes("deepseek") ||
       model.id.includes("anthropic") ||
       model.id.includes("claude") ||
       model.api.npm === "@ai-sdk/anthropic" ||

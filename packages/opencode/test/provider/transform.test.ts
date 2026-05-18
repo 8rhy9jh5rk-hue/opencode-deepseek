@@ -1125,14 +1125,13 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
     )
 
     expect(result).toHaveLength(1)
-    expect(result[0].content).toEqual([
-      {
-        type: "tool-call",
-        toolCallId: "test",
-        toolName: "bash",
-        input: { command: "echo hello" },
-      },
-    ])
+    expect(result[0].content).toHaveLength(1)
+    expect(result[0].content[0]).toMatchObject({
+      type: "tool-call",
+      toolCallId: "test",
+      toolName: "bash",
+      input: { command: "echo hello" },
+    })
     expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("Let me think about this...")
   })
 
@@ -2292,6 +2291,11 @@ describe("ProviderTransform.message - cache control on gateway", () => {
           type: "ephemeral",
         },
       },
+      deepseek: {
+        cacheControl: {
+          type: "ephemeral",
+        },
+      },
     })
   })
 
@@ -2345,6 +2349,11 @@ describe("ProviderTransform.message - cache control on gateway", () => {
         },
       },
       alibaba: {
+        cacheControl: {
+          type: "ephemeral",
+        },
+      },
+      deepseek: {
         cacheControl: {
           type: "ephemeral",
         },
