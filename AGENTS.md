@@ -4,45 +4,81 @@ This fork of [opencode](https://github.com/anomalyco/opencode) optimizes the pro
 
 ## How to Test / Lint / Typecheck
 
-- Tests cannot run from repo root (guard: `do-not-run-tests-from-root`). Run from package dirs:
-  ```bash
-  bun test   # in packages/opencode or other package dir
-  ```
-- Typecheck from specific packages, not root. Use `tsc` per package or turbo scripts.
+Tests cannot run from repo root (guard: `do-not-run-tests-from-root`). Run from package dirs:
+```bash
+bun test   # in packages/opencode
+tsc build && bun turbo typecheck  # type-check if available
+```
 
 ## Architecture Essentials
 
-This is a [Bun](https://bun.sh) monorepo using [Effect Go](https://.effectful.net/) and Turborepo. Packages live at `packages/*`. Key directories:
+This is a Bun monorepo using Effect + Turborepo. Packages live at `packages/*`. Key directories:
 - `packages/opencode/src/` — core opencode logic (agents, sessions, providers, tools)
 
-## Provider Integration
+## Provider Integration Flow
 
-To add a new provider to opencode:
-1. **Register in schema** (`src/provider/schema.ts`): Add a well-known `ProviderID` entry. For example:
-   ```ts
-   deepseek: schema.make("deepseek"),
-   ```
-2. Implement corresponding SDK provider integration and transform layer in `provider/transform.ts`
+### Phase 1: Schema Registration — `src/provider/schema.ts` (~line 10)
 
-## Prompt Caching Work
+Add `deepseek: schema.make("deepseek")` to the ProviderID.withStatics block alongside other well-known providers.
 
-Prompt caching optimization touches these files:
-- `src/session/prompt.ts` — constructs messages sent to LLM
-- `src/provider/transform.ts` — transforms messages before sending to providers (add DeepSeek cache config here)
-- `src/session/system.ts` — provider-specific prompt templates
-- `src/session/llm.ts` — handles streaming response with model
+### Phase 2: Provider Loader — `src/provider/provider.ts` (`custom()` function ~lines 150-842)
 
-Reference **DeepSeek API Guide** for prompt caching parameters and usage patterns.
+Add deepseek provider loader entry using OpenAI-compatible SDK, following pattern of alibaba provider:
+```ts
+import * as OpenAIC from "@ai-sdk/openai-compatible"
+// Provider config with openaiCompatible package reference
+```
+
+### Phase 3: Message Transform + Cache Control — `src/provider/transform.ts` 🔑 **CRITICAL**
+
+#### 3a. Add deepseek to cache control map (`applyCaching()` ~line 345)
+
+```ts
+const providerOptions = {
+  // existing options...
+  deepseek: { cacheControl: { type: "ephemeral" } },
+}
+```
+
+#### 3b. Enable caching for DeepSeek models — `message()` guard (~lines 432-444)
+
+Current condition only calls `applyCaching()` for anthropic/google/vertex providers, leaving deepseek without cache support:
+
+```ts
+if (model.providerID === "anthropic" || model.id.includes("claude") || 
+    /* other existing check */) && !model.api.npm === "@ai-sdk/aws-gateway") {
+  msgs = applyCaching(msgs, model)
+}
+```
+
+**Fix: Add deepseek branch:**
+```ts
+if (model.providerID === "deepseek" || 
+    (model.api.id.toLowerCase().includes("deepseek-chat") && 
+     model.api.npm !== "@ai-sdk/aws-gateway")) {
+  msgs = applyCaching(msgs, model)
+}
+```
+
+### Phase 4: Prompt Templates — `src/session/system.ts` (~line 19-32)
+
+In the provider() function, add branch for deepseek-specific prompt routing:
+```ts
+if (model.api.id.toLowerCase().includes("deepseek")) {
+  return [PROMPT_DEEPSEEK]  // or PROMPT_DEFAULT 
+}
+```
 
 ## Agent-Centric Gotchas
+
+### Provider ID Convention
+ProviderIDs are string enums registered in schema.ts. Use "deepseek" for DeepSeek providerID registration. When model id contains "deepseek", routing will use deepseaker prompt path.
 
 ### Style Conventions (inherited from parent opencode)
 - Avoid unnecessary destructuring; prefer dot notation (`obj.a`)
 - Prefer `const` over `let`, early returns over `else`
 - Inline single-use helpers, extract when reusable or named conceptually
-- Use snake_case for Drizzle schema fields matching DB columns
-- Add comments for non-obvious constraints only
 
 ### Effect Patterns
 - Do not return `Effect` from helpers doing synchronous work (parsing, validation)
-- Prefer Effect schema helpers (`Schema.UnknownFromJsonString`, `Schema.decodeUnknownOption`) over manual `JSON.parse` with try/catch
+- Prefer Effect schema helpers (`Schema.UnknownFromJsonString`, `Schema.decodeUnknownOption`) over manual JSON.parse with try/catch 
