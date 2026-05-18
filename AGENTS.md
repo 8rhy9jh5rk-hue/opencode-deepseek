@@ -1,127 +1,48 @@
-- To regenerate the JavaScript SDK, run `./packages/sdk/js/script/build.ts`.
-- ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
-- The default branch in this repo is `dev`.
-- Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
-- Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
+## Project Purpose
 
-## Style Guide
+This fork of [opencode](https://github.com/anomalyco/opencode) optimizes the project for **DeepSeek API**, with primary focus on **prompt caching** support. Add a `deepseek` provider, implement prompt cache integration per DeepSeek API guide, and ensure existing opencode features work correctly with DeepSeek models.
 
-### General Principles
+## How to Test / Lint / Typecheck
 
-- Keep things in one function unless composable or reusable
-- Do not extract single-use helpers preemptively. Inline the logic at the call site unless the helper is reused, hides a genuinely complex boundary, or has a clear independent name that improves the caller.
-- Avoid `try`/`catch` where possible
-- Avoid using the `any` type
-- Use Bun APIs when possible, like `Bun.file()`
-- Rely on type inference when possible; avoid explicit type annotations or interfaces unless necessary for exports or clarity
-- Prefer functional array methods (flatMap, filter, map) over for loops; use type guards on filter to maintain type inference downstream
-- In `src/config`, follow the existing self-export pattern at the top of the file (for example `export * as ConfigAgent from "./agent"`) when adding a new config module.
+- Tests cannot run from repo root (guard: `do-not-run-tests-from-root`). Run from package dirs:
+  ```bash
+  bun test   # in packages/opencode or other package dir
+  ```
+- Typecheck from specific packages, not root. Use `tsc` per package or turbo scripts.
 
-Reduce total variable count by inlining when a value is only used once.
+## Architecture Essentials
 
-```ts
-// Good
-const journal = await Bun.file(path.join(dir, "journal.json")).json()
+This is a [Bun](https://bun.sh) monorepo using [Effect Go](https://.effectful.net/) and Turborepo. Packages live at `packages/*`. Key directories:
+- `packages/opencode/src/` — core opencode logic (agents, sessions, providers, tools)
 
-// Bad
-const journalPath = path.join(dir, "journal.json")
-const journal = await Bun.file(journalPath).json()
-```
+## Provider Integration
 
-### Destructuring
+To add a new provider to opencode:
+1. **Register in schema** (`src/provider/schema.ts`): Add a well-known `ProviderID` entry. For example:
+   ```ts
+   deepseek: schema.make("deepseek"),
+   ```
+2. Implement corresponding SDK provider integration and transform layer in `provider/transform.ts`
 
-Avoid unnecessary destructuring. Use dot notation to preserve context.
+## Prompt Caching Work
 
-```ts
-// Good
-obj.a
-obj.b
+Prompt caching optimization touches these files:
+- `src/session/prompt.ts` — constructs messages sent to LLM
+- `src/provider/transform.ts` — transforms messages before sending to providers (add DeepSeek cache config here)
+- `src/session/system.ts` — provider-specific prompt templates
+- `src/session/llm.ts` — handles streaming response with model
 
-// Bad
-const { a, b } = obj
-```
+Reference **DeepSeek API Guide** for prompt caching parameters and usage patterns.
 
-### Variables
+## Agent-Centric Gotchas
 
-Prefer `const` over `let`. Use ternaries or early returns instead of reassignment.
+### Style Conventions (inherited from parent opencode)
+- Avoid unnecessary destructuring; prefer dot notation (`obj.a`)
+- Prefer `const` over `let`, early returns over `else`
+- Inline single-use helpers, extract when reusable or named conceptually
+- Use snake_case for Drizzle schema fields matching DB columns
+- Add comments for non-obvious constraints only
 
-```ts
-// Good
-const foo = condition ? 1 : 2
-
-// Bad
-let foo
-if (condition) foo = 1
-else foo = 2
-```
-
-### Control Flow
-
-Avoid `else` statements. Prefer early returns.
-
-```ts
-// Good
-function foo() {
-  if (condition) return 1
-  return 2
-}
-
-// Bad
-function foo() {
-  if (condition) return 1
-  else return 2
-}
-```
-
-### Complex Logic
-
-When a function has several validation branches or supporting details, make the main function read as the happy path and move supporting details into small helpers below it.
-
-```ts
-// Good
-export function loadThing(input: unknown) {
-  const config = requireConfig(input)
-  const metadata = readMetadata(input)
-  return createThing({ config, metadata })
-}
-
-function requireConfig(input: unknown) {
-  ...
-}
-```
-
-- Keep helpers close to the code they support, below the main export when that improves readability.
-- Do not over-abstract simple expressions into many single-use helpers; extract only when it names a real concept like `requireConfig` or `readMetadata`.
-- Do not return `Effect` from helpers unless they actually perform effectful work. Synchronous parsing, validation, and option building should stay synchronous.
-- Prefer Effect schema helpers such as `Schema.UnknownFromJsonString` and `Schema.decodeUnknownOption` over manual `JSON.parse` wrapped in `Effect.try` when parsing untrusted JSON strings.
-- Add comments for non-obvious constraints and surprising behavior, not for obvious assignments or control flow.
-
-### Schema Definitions (Drizzle)
-
-Use snake_case for field names so column names don't need to be redefined as strings.
-
-```ts
-// Good
-const table = sqliteTable("session", {
-  id: text().primaryKey(),
-  project_id: text().notNull(),
-  created_at: integer().notNull(),
-})
-
-// Bad
-const table = sqliteTable("session", {
-  id: text("id").primaryKey(),
-  projectID: text("project_id").notNull(),
-  createdAt: integer("created_at").notNull(),
-})
-```
-
-## Testing
-
-- Avoid mocks as much as possible
-- Test actual implementation, do not duplicate logic into tests
-- Tests cannot run from repo root (guard: `do-not-run-tests-from-root`); run from package dirs like `packages/opencode`.
-
-## Type Checking
-
-- Always run `bun typecheck` from package directories (e.g., `packages/opencode`), never `tsc` directly.
+### Effect Patterns
+- Do not return `Effect` from helpers doing synchronous work (parsing, validation)
+- Prefer Effect schema helpers (`Schema.UnknownFromJsonString`, `Schema.decodeUnknownOption`) over manual `JSON.parse` with try/catch
